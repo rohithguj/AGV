@@ -14,52 +14,47 @@ class Frontend:
         self.prev_pose = np.eye(4)
         self.state = "INIT"
         self.path = []
-        self.orb = cv2.ORB_create()
-        self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        self.prev_gray = None
         self.prev_keypoints = None
-        self.prev_descriptors = None
+        self.lk_params = dict(winSize=(15, 15), maxLevel=2, 
+                              criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 
     def track(self, obs):
+        # Convert current frame to grayscale
         gray_frame = cv2.cvtColor(obs.frame, cv2.COLOR_BGR2GRAY)
-        kp, des = self.orb.detectAndCompute(gray_frame, None)
 
         if self.state == "INIT":
-            self.prev_keypoints = kp
-            self.prev_descriptors = des
+            # Initialize keypoints in the first frame
+            self.prev_gray = gray_frame
+            self.prev_keypoints = cv2.goodFeaturesToTrack(gray_frame, maxCorners=100, qualityLevel=0.3, minDistance=7)
             self.state = "TRACKING"
             self.path.append((0, 0))
             return {"init": True}, None, None, None
 
-        # Match descriptors
-        matches = self.bf.match(self.prev_descriptors, des)
-        matches = sorted(matches, key=lambda x: x.distance)
+        # Calculate optical flow
+        next_keypoints, st, err = cv2.calcOpticalFlowPyrLK(self.prev_gray, gray_frame, self.prev_keypoints, None, **self.lk_params)
 
-        # Filter matches based on distance
-        good_matches = [m for m in matches if m.distance < 50]  # Adjust threshold as needed
+        # Select good points
+        good_new = next_keypoints[st == 1]
+        good_old = self.prev_keypoints[st == 1]
 
-        if len(good_matches) >= 10:
-            # Extract locations of good matches
-            points1 = np.float32([self.prev_keypoints[m.queryIdx].pt for m in good_matches])
-            points2 = np.float32([kp[m.trainIdx].pt for m in good_matches])
+        if len(good_new) >= 10:
+            # Estimate translation based on good points
+            translation = np.mean(good_new - good_old, axis=0)
+            
+            # Ensure the translation has three components
+            new_pose = np.eye(4)
+            new_pose[:3, 3] = np.array([translation[0], translation[1], 0])  # Add 0 for z-component
 
-            # Estimate essential matrix
-            E, mask = cv2.findEssentialMat(points2, points1, self.cam_specs.intrinsics, method=cv2.RANSAC, prob=0.999, threshold=1.0)
-            if E is not None:
-                _, R, t, mask = cv2.recoverPose(E, points2, points1, self.cam_specs.intrinsics)
+            # Update the pose
+            self.prev_pose = self.prev_pose @ new_pose
+            self.path.append((self.prev_pose[0, 3], self.prev_pose[1, 3]))
 
-                # Update pose
-                translation = t.flatten()
-                new_pose = np.eye(4)
-                new_pose[:3, :3] = R
-                new_pose[:3, 3] = translation
+            # Update previous data for the next iteration
+            self.prev_gray = gray_frame
+            self.prev_keypoints = good_new.reshape(-1, 1, 2)
 
-                self.prev_pose = self.prev_pose @ new_pose
-                self.path.append((self.prev_pose[0, 3], self.prev_pose[1, 3]))
-
-                self.prev_keypoints = kp
-                self.prev_descriptors = des
-
-                return {"matches": len(good_matches), "pose": self.prev_pose}, kp, None, None
+            return {"matches": len(good_new), "pose": self.prev_pose}, good_new, None, None
 
         return {"matches": 0}, None, None, None
 
@@ -88,9 +83,10 @@ def main(video_file):
         result, kp, _, _ = frontend.track(obs)
         print(result)
 
-        # Draw matches (optional)
+        # Draw tracked points
         if kp is not None:
-            cv2.drawKeypoints(frame, kp, frame)
+            for point in kp:
+                cv2.circle(frame, (int(point[0]), int(point[1])), 5, (0, 255, 0), -1)
 
         cv2.imshow('Video', frame)
 
@@ -115,5 +111,5 @@ def main(video_file):
     plt.show()
 
 if __name__ == "__main__":
-    video_file = "/home/rohith-pt7726/Desktop/AGV/Test/test1.mp4"  # Change this to your video file path
+    video_file = "/home/rohith-pt7726/AGV/Test/test2.mp4"  # Change this to your video file path
     main(video_file)

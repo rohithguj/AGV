@@ -95,5 +95,5 @@ def main(video_file):
     plt.show()
 
 if __name__ == "__main__":
-    video_file = "/home/zlabs/Desktop/test1.mp4"  # Change this to your video file path
+    video_file = "/home/rohith-pt7726/AGV/Test/test1.mp4"  # Change this to your video file path
     main(video_file)

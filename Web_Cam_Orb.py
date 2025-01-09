@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 
 class CameraSpecs:
     def __init__(self):
@@ -93,15 +92,12 @@ def main():
         print("Error: Could not access the webcam.")
         return
 
+    # Reduce resolution to speed up processing
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
     cam_specs = CameraSpecs()
     frontend = Frontend(cam_specs)
-
-    plt.ion()  # Turn on interactive mode for real-time plotting
-    fig, ax = plt.subplots()
-    ax.set_title('Path Taken')
-    ax.set_xlabel('X position')
-    ax.set_ylabel('Y position')
-    ax.axis('equal')
 
     while True:
         ret, frame = cap.read()
@@ -109,38 +105,23 @@ def main():
             print("Error: Failed to grab a frame.")
             break
 
-        obs = Observation(frame)
+        # Preprocess the frame (downscale for faster processing)
+        frame_resized = cv2.resize(frame, (640, 480))
+        obs = Observation(frame_resized)
         result, kp, _, _ = frontend.track(obs)
         print(result)
 
         # Draw matches (optional)
         if kp is not None:
-            cv2.drawKeypoints(frame, kp, frame)
+            cv2.drawKeypoints(frame_resized, kp, frame_resized)
 
-        cv2.imshow('Webcam Feed', frame)
-
-        # Update the path plot in real-time
-        try:
-            path = np.array(frontend.path)
-            ax.clear()  # Clear the previous plot
-            ax.plot(path[:, 0], path[:, 1], marker='o')
-            ax.set_title('Path Taken')
-            ax.set_xlabel('X position')
-            ax.set_ylabel('Y position')
-            ax.axis('equal')
-            plt.pause(0.01)  # Pause to update the plot
-        except Exception as e:
-            print(f"Error during plotting: {e}")
+        cv2.imshow('Webcam Feed', frame_resized)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
     cap.release()
     cv2.destroyAllWindows()
-
-    # Show final plot after the loop ends
-    plt.ioff()  # Turn off interactive mode
-    plt.show()
 
 if __name__ == "__main__":
     main()
